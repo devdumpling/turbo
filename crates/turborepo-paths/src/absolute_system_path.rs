@@ -5,21 +5,22 @@ use std::os::unix::fs::symlink as symlink_dir;
 #[cfg(windows)]
 use std::os::windows::fs::{symlink_dir, symlink_file};
 use std::{
+    borrow::Cow,
     fmt, fs,
-    fs::{File, Metadata, OpenOptions},
+    fs::Metadata,
     io,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
-use camino::{Utf8Component, Utf8Components, Utf8Path, Utf8PathBuf};
 use path_clean::PathClean;
+use path_slash::CowExt;
 
 use crate::{
     AbsoluteSystemPathBuf, AnchoredSystemPath, AnchoredSystemPathBuf, PathError, RelativeUnixPath,
 };
 
 #[derive(Debug)]
-pub struct AbsoluteSystemPath(Utf8Path);
+pub struct AbsoluteSystemPath(Path);
 
 impl ToOwned for AbsoluteSystemPath {
     type Owned = AbsoluteSystemPathBuf;
@@ -37,13 +38,13 @@ impl AsRef<AbsoluteSystemPath> for AbsoluteSystemPath {
 
 impl fmt::Display for AbsoluteSystemPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0.as_str())
+        self.0.display().fmt(f)
     }
 }
 
 impl AsRef<Path> for AbsoluteSystemPath {
     fn as_ref(&self) -> &Path {
-        self.0.as_std_path()
+        &self.0
     }
 }
 
@@ -77,10 +78,10 @@ impl AbsoluteSystemPath {
     ///   assert!(AbsoluteSystemPath::new("/foo/bar").is_err());
     /// }
     /// ```
-    pub fn new<P: AsRef<str> + ?Sized>(value: &P) -> Result<&Self, PathError> {
+    pub fn new<P: AsRef<Path> + ?Sized>(value: &P) -> Result<&Self, PathError> {
         let path = value.as_ref();
-        if Path::new(path).is_relative() {
-            return Err(PathError::NotAbsolute(path.to_owned()));
+        if path.is_relative() {
+            return Err(PathError::NotAbsolute(path.to_owned()).into());
         }
 
         Ok(Self::new_unchecked(path))
@@ -94,46 +95,19 @@ impl AbsoluteSystemPath {
         Self::new(path_str)
     }
 
-    pub(crate) fn new_unchecked<'a>(path: impl AsRef<str> + 'a) -> &'a Self {
-        let path = Utf8Path::new(path.as_ref());
-        unsafe { &*(path as *const Utf8Path as *const Self) }
+    pub unsafe fn new_unchecked<'a>(path: impl AsRef<Path> + 'a) -> &'a Self {
+        let path = path.as_ref();
+        &*(path as *const Path as *const Self)
     }
 
-    pub fn as_path(&self) -> &Utf8Path {
+    pub fn as_path(&self) -> &Path {
         &self.0
-    }
-
-    pub fn as_std_path(&self) -> &Path {
-        self.0.as_std_path()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_str().as_bytes()
-    }
-
-    pub fn ancestors(&self) -> impl Iterator<Item = &AbsoluteSystemPath> {
-        self.0.ancestors().map(Self::new_unchecked)
-    }
-
-    pub fn create_dir_all(&self) -> Result<(), io::Error> {
-        fs::create_dir_all(&self.0)
-    }
-
-    pub fn extension(&self) -> Option<&str> {
-        self.0.extension()
     }
 
     // intended for joining literals or obviously single-token strings
     pub fn join_component(&self, segment: &str) -> AbsoluteSystemPathBuf {
         debug_assert!(!segment.contains(std::path::MAIN_SEPARATOR));
-        AbsoluteSystemPathBuf(
-            self.0
-                .join(segment)
-                .as_std_path()
-                .clean()
-                .try_into()
-                .unwrap(),
-        )
+        AbsoluteSystemPathBuf(self.0.join(segment).clean())
     }
 
     // intended for joining a path composed of literals
@@ -144,21 +118,16 @@ impl AbsoluteSystemPath {
         AbsoluteSystemPathBuf(
             self.0
                 .join(segments.join(std::path::MAIN_SEPARATOR_STR))
-                .as_std_path()
-                .clean()
-                .try_into()
-                .unwrap(),
+                .clean(),
         )
     }
 
     pub fn join_unix_path(
         &self,
-        unix_path: impl AsRef<RelativeUnixPath>,
+        unix_path: &RelativeUnixPath,
     ) -> Result<AbsoluteSystemPathBuf, PathError> {
-        let tail = unix_path.as_ref().to_system_path_buf()?;
-        Ok(AbsoluteSystemPathBuf(
-            self.0.join(tail).as_std_path().clean().try_into()?,
-        ))
+        let tail = unix_path.to_system_path_buf()?;
+        Ok(AbsoluteSystemPathBuf(self.0.join(tail.as_path()).clean()))
     }
 
     pub fn anchor(&self, path: &AbsoluteSystemPath) -> Result<AnchoredSystemPathBuf, PathError> {
@@ -186,20 +155,9 @@ impl AbsoluteSystemPath {
         Ok(())
     }
 
-    pub fn resolve(&self, path: &AnchoredSystemPath) -> AbsoluteSystemPathBuf {
-        let path = self.0.join(path);
+    pub fn resolve(&self, path: impl AsRef<AnchoredSystemPath>) -> AbsoluteSystemPathBuf {
+        let path = self.0.join(path.as_ref().as_path());
         AbsoluteSystemPathBuf(path)
-    }
-
-    pub fn clean(&self) -> Result<AbsoluteSystemPathBuf, PathError> {
-        let cleaned_path = self
-            .0
-            .as_std_path()
-            .clean()
-            .try_into()
-            .map_err(|_| PathError::InvalidUnicode(self.0.as_str().to_owned()))?;
-
-        Ok(AbsoluteSystemPathBuf(cleaned_path))
     }
 
     // note that this is *not* lstat. If this is a symlink, it
@@ -208,14 +166,12 @@ impl AbsoluteSystemPath {
         Ok(fs::metadata(&self.0)?)
     }
 
-    // The equivalent of lstat. Returns the metadata for this file,
-    // even if it is a symlink
     pub fn symlink_metadata(&self) -> Result<Metadata, PathError> {
         Ok(fs::symlink_metadata(&self.0)?)
     }
 
-    pub fn read_link(&self) -> Result<Utf8PathBuf, io::Error> {
-        self.0.read_link_utf8()
+    pub fn read_link(&self) -> Result<PathBuf, io::Error> {
+        fs::read_link(&self.0)
     }
 
     pub fn remove_file(&self) -> Result<(), io::Error> {
@@ -298,7 +254,6 @@ impl AbsoluteSystemPath {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use test_case::test_case;
 
     use super::*;
 
@@ -317,59 +272,5 @@ mod tests {
         }
 
         Ok(())
-    }
-
-    #[test]
-    fn test_resolve_empty() {
-        let root = AbsoluteSystemPathBuf::cwd().unwrap();
-        let empty = AnchoredSystemPathBuf::from_raw("").unwrap();
-        let result = root.resolve(&empty);
-        assert_eq!(result, root);
-    }
-
-    #[test_case(&["foo", "bar"], &["foo", "bar"] ; "no collapse")]
-    #[test_case(&["foo", "..", "bar"], &["bar"] ; "parent traversal")]
-    #[test_case(&["foo", ".", "bar"], &["foo", "bar"] ; "current dir")]
-    #[test_case(&["foo", "bar", "..", "bar"], &["foo", "bar"] ; "re-entry")]
-    fn test_collapse(input: &[&str], expected: &[&str]) {
-        let root = if cfg!(windows) { "C:\\" } else { "/" };
-
-        let path = AbsoluteSystemPathBuf::new(root)
-            .unwrap()
-            .join_components(input);
-
-        let expected = AbsoluteSystemPathBuf::new(root)
-            .unwrap()
-            .join_components(expected);
-
-        assert_eq!(path.collapse(), expected);
-    }
-
-    #[test_case(&["elsewhere"], false ; "no shared prefix")]
-    #[test_case(&["some", "sibling"], false ; "sibling")]
-    #[test_case(&["some", "path"], true ; "reflexive")]
-    #[test_case(&["some", "path", "..", "path", "inside", "parent"], true ; "re-enters base")]
-    #[test_case(&["some", "path", "inside", "..", "inside", "parent"], true ; "re-enters child")]
-    #[test_case(&["some", "path", "inside", "..", "..", "outside", "parent"], false ; "exits base")]
-    #[test_case(&["some", "path2"], false ; "lexical prefix match")]
-    fn test_contains(other: &[&str], expected: bool) {
-        let root_token = match cfg!(windows) {
-            true => "C:\\",
-            false => "/",
-        };
-
-        let base = AbsoluteSystemPathBuf::new(
-            [root_token, "some", "path"].join(std::path::MAIN_SEPARATOR_STR),
-        )
-        .unwrap();
-        let other = AbsoluteSystemPathBuf::new(
-            std::iter::once(root_token)
-                .chain(other.iter().copied())
-                .collect::<Vec<_>>()
-                .join(std::path::MAIN_SEPARATOR_STR),
-        )
-        .unwrap();
-
-        assert_eq!(base.contains(&other), expected);
     }
 }

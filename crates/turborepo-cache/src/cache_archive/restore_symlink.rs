@@ -1,69 +1,63 @@
-use std::backtrace::Backtrace;
-
-use camino::Utf8Path;
-use turbopath::{
-    AbsoluteSystemPath, AbsoluteSystemPathBuf, AnchoredSystemPath, AnchoredSystemPathBuf,
-    PathError, UnknownPathType,
+use std::{
+    backtrace::Backtrace,
+    path::{Path, PathBuf},
 };
 
-use crate::{cache_archive::restore_directory::CachedDirTree, CacheError};
+use path_clean::clean;
+use turbopath::{AbsoluteSystemPath, AnchoredSystemPath, AnchoredSystemPathBuf};
+
+use crate::{
+    cache_archive::{restore::canonicalize_name, restore_regular::safe_mkdir_file},
+    CacheError,
+};
 
 pub fn restore_symlink(
-    dir_cache: &mut CachedDirTree,
     anchor: &AbsoluteSystemPath,
     header: &tar::Header,
 ) -> Result<AnchoredSystemPathBuf, CacheError> {
-    let processed_name = AnchoredSystemPathBuf::from_system_path(&header.path()?)?;
+    let processed_name = canonicalize_name(&header.path()?)?;
 
-    let linkname = header
-        .link_name()?
-        .ok_or_else(|| CacheError::MalformedTar(Backtrace::capture()))?;
-
-    let processed_linkname = canonicalize_linkname(anchor, &processed_name, &linkname)?;
+    let processed_linkname = canonicalize_linkname(
+        anchor,
+        &processed_name,
+        &header.link_name()?.expect("has linkname"),
+    )?;
 
     if processed_linkname.symlink_metadata().is_err() {
         return Err(CacheError::LinkTargetDoesNotExist(
-            processed_linkname.to_string(),
+            processed_linkname.to_string_lossy().to_string(),
             Backtrace::capture(),
         ));
     }
 
-    actually_restore_symlink(dir_cache, anchor, &processed_name, header)?;
+    actually_restore_symlink(anchor, processed_name.as_anchored_path(), header)?;
 
     Ok(processed_name)
 }
 
-pub fn restore_symlink_allow_missing_target(
-    dir_cache: &mut CachedDirTree,
+pub fn restore_symlink_with_missing_target(
     anchor: &AbsoluteSystemPath,
     header: &tar::Header,
 ) -> Result<AnchoredSystemPathBuf, CacheError> {
-    let processed_name = AnchoredSystemPathBuf::from_system_path(&header.path()?)?;
+    let processed_name = canonicalize_name(&header.path()?)?;
 
-    actually_restore_symlink(dir_cache, anchor, &processed_name, header)?;
+    actually_restore_symlink(anchor, processed_name.as_anchored_path(), header)?;
 
     Ok(processed_name)
 }
 
 fn actually_restore_symlink<'a>(
-    dir_cache: &mut CachedDirTree,
     anchor: &AbsoluteSystemPath,
     processed_name: &'a AnchoredSystemPath,
     header: &tar::Header,
 ) -> Result<&'a AnchoredSystemPath, CacheError> {
-    dir_cache.safe_mkdir_file(anchor, processed_name)?;
+    safe_mkdir_file(anchor, &processed_name)?;
 
     let symlink_from = anchor.resolve(processed_name);
 
     _ = symlink_from.remove();
 
-    let link_name = header.link_name()?.expect("have linkname");
-    let symlink_to = link_name.to_str().ok_or_else(|| {
-        CacheError::PathError(
-            PathError::InvalidUnicode(link_name.to_string_lossy().to_string()),
-            Backtrace::capture(),
-        )
-    })?;
+    let symlink_to = header.link_name()?.expect("have linkname");
 
     if Utf8Path::new(symlink_to).is_dir() {
         symlink_from.symlink_to_dir(symlink_to)?;
@@ -71,10 +65,10 @@ fn actually_restore_symlink<'a>(
         symlink_from.symlink_to_file(symlink_to)?;
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let metadata = symlink_from.symlink_metadata()?;
+        let metadata = symlink_from.as_absolute_path().symlink_metadata()?;
         let mut permissions = metadata.permissions();
         if let Ok(mode) = header.mode() {
             permissions.set_mode(mode);
@@ -84,19 +78,13 @@ fn actually_restore_symlink<'a>(
     Ok(processed_name)
 }
 
-// canonicalize_linkname determines (lexically) what the resolved path on the
+// canonicalizeLinkname determines (lexically) what the resolved path on the
 // system will be when linkname is restored verbatim.
 pub fn canonicalize_linkname(
     anchor: &AbsoluteSystemPath,
     processed_name: &AnchoredSystemPathBuf,
-    linkname: &std::path::Path,
-) -> Result<AbsoluteSystemPathBuf, CacheError> {
-    let linkname = linkname.try_into().map_err(|_| {
-        CacheError::PathError(
-            PathError::InvalidUnicode(linkname.to_string_lossy().to_string()),
-            Backtrace::capture(),
-        )
-    })?;
+    linkname: &Path,
+) -> Result<PathBuf, CacheError> {
     // We don't know _anything_ about linkname. It could be any of:
     //
     // - Absolute Unix Path
@@ -119,28 +107,27 @@ pub fn canonicalize_linkname(
     // In order to DAG sort them, however, we do need to canonicalize them.
     // We canonicalize them as if we're restoring them verbatim.
     //
-    match turbopath::categorize(linkname) {
-        // 1. Check to see if the link target is absolute _on the current platform_.
-        // If it is an absolute path it's canonical by rule.
-        UnknownPathType::Absolute(abs) => Ok(abs),
-        // Remaining options:
-        // - Absolute (other platform) Path
-        // - Relative Unix Path
-        // - Relative Windows Path
-        //
-        // At this point we simply assume that it's a relative path—no matter
-        // which separators appear in it and where they appear,  We can't do
-        // anything else because the OS will also treat it like that when it is
-        // a link target.
-        UnknownPathType::Anchored(cleaned_linkname) => {
-            let source = anchor.resolve(processed_name);
-            let canonicalized = source
-                .parent()
-                .expect("expected parent for file")
-                .resolve(&cleaned_linkname)
-                .clean()?;
+    let cleaned_linkname = clean(linkname);
 
-            Ok(canonicalized)
-        }
+    // 1. Check to see if the link target is absolute _on the current platform_.
+    // If it is an absolute path it's canonical by rule.
+    if cleaned_linkname.is_absolute() {
+        return Ok(cleaned_linkname);
     }
+
+    let cleaned_linkname = AnchoredSystemPathBuf::try_from(cleaned_linkname.as_path())?;
+    // Remaining options:
+    // - Absolute (other platform) Path
+    // - Relative Unix Path
+    // - Relative Windows Path
+    //
+    // At this point we simply assume that it's a relative path—no matter
+    // which separators appear in it and where they appear,  We can't do
+    // anything else because the OS will also treat it like that when it is
+    // a link target.
+    //
+    let source = anchor.resolve(processed_name);
+    let canonicalized = source.parent().unwrap_or(anchor).resolve(&cleaned_linkname);
+
+    Ok(clean(canonicalized))
 }

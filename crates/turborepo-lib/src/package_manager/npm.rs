@@ -1,16 +1,17 @@
-use turbopath::AbsoluteSystemPath;
+use anyhow::Result;
+use turbopath::AbsoluteSystemPathBuf;
 
-use crate::package_manager::{Error, PackageManager};
+use crate::package_manager::PackageManager;
 
 pub const LOCKFILE: &str = "package-lock.json";
 
 pub struct NpmDetector<'a> {
-    repo_root: &'a AbsoluteSystemPath,
+    repo_root: &'a AbsoluteSystemPathBuf,
     found: bool,
 }
 
 impl<'a> NpmDetector<'a> {
-    pub fn new(repo_root: &'a AbsoluteSystemPath) -> Self {
+    pub fn new(repo_root: &'a AbsoluteSystemPathBuf) -> Self {
         Self {
             repo_root,
             found: false,
@@ -19,7 +20,7 @@ impl<'a> NpmDetector<'a> {
 }
 
 impl<'a> Iterator for NpmDetector<'a> {
-    type Item = Result<PackageManager, Error>;
+    type Item = Result<PackageManager>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.found {
@@ -46,16 +47,24 @@ mod tests {
     use turbopath::AbsoluteSystemPathBuf;
 
     use super::LOCKFILE;
-    use crate::package_manager::PackageManager;
+    use crate::{
+        commands::CommandBase, get_version, package_manager::PackageManager, ui::UI, Args,
+    };
 
     #[test]
     fn test_detect_npm() -> Result<()> {
         let repo_root = tempdir()?;
-        let repo_root_path = AbsoluteSystemPathBuf::try_from(repo_root.path())?;
+        let repo_root_path = AbsoluteSystemPathBuf::new(repo_root.path())?;
+        let mut base = CommandBase::new(
+            Args::default(),
+            repo_root_path,
+            get_version(),
+            UI::new(true),
+        )?;
 
         let lockfile_path = repo_root.path().join(LOCKFILE);
-        File::create(lockfile_path)?;
-        let package_manager = PackageManager::detect_package_manager(&repo_root_path)?;
+        File::create(&lockfile_path)?;
+        let package_manager = PackageManager::detect_package_manager(&mut base)?;
         assert_eq!(package_manager, PackageManager::Npm);
 
         Ok(())

@@ -2,6 +2,7 @@
 //!
 //! Please read the notes about safety (marked with `SAFETY`) in both this file,
 //! and in ffi.go before modifying this file.
+mod cache;
 mod lockfile;
 
 use std::{collections::HashMap, mem::ManuallyDrop};

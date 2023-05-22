@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use camino::Utf8PathBuf;
 use futures::{stream::iter, StreamExt};
 use globwatch::{ConfigError, GlobWatcher, StopToken, WatchConfig, Watcher};
 use itertools::Itertools;
@@ -13,7 +12,6 @@ use notify::{EventKind, RecommendedWatcher};
 use tokio::time::timeout;
 use tracing::{trace, warn};
 use turbopath::AbsoluteSystemPathBuf;
-use wax::{Glob as WaxGlob, Pattern};
 
 // these aliases are for readability, but they're just strings. it may make
 // sense to use a newtype wrapper for these types in the future.
@@ -37,7 +35,6 @@ pub struct HashGlobWatcher<T: Watcher> {
     /// maps a glob to the hashes for which this glob hasn't changed
     glob_statuses: Arc<Mutex<HashMap<Glob, HashSet<Hash>>>>,
 
-    #[allow(dead_code)]
     watcher: Arc<Mutex<Option<GlobWatcher>>>,
     config: WatchConfig<T>,
 }
@@ -52,8 +49,8 @@ impl HashGlobWatcher<RecommendedWatcher> {
     #[tracing::instrument]
     pub fn new(
         relative_to: AbsoluteSystemPathBuf,
-        flush_folder: Utf8PathBuf,
-    ) -> Result<Self, notify::Error> {
+        flush_folder: PathBuf,
+    ) -> Result<Self, globwatch::Error> {
         let (watcher, config) = GlobWatcher::new(flush_folder)?;
         Ok(Self {
             relative_to: relative_to.as_path().canonicalize()?,
@@ -78,8 +75,7 @@ impl<T: Watcher> HashGlobWatcher<T> {
                 .collect::<Vec<_>>()
         };
 
-        let watcher = self.watcher.lock().expect("only fails if poisoned").take();
-        let mut stream = match watcher {
+        let mut stream = match self.watcher.lock().expect("only fails if poisoned").take() {
             Some(watcher) => watcher.into_stream(token),
             None => {
                 warn!("watcher already consumed");
@@ -95,8 +91,7 @@ impl<T: Watcher> HashGlobWatcher<T> {
             self.config.include(&self.relative_to, &glob).await.ok();
         }
 
-        while let Some(Ok(result)) = stream.next().await {
-            let event = result?;
+        while let Some(Ok(event)) = stream.next().await {
             if event.paths.contains(&self.relative_to) && matches!(event.kind, EventKind::Remove(_))
             {
                 // if the root of the repo is deleted, we shut down
@@ -151,10 +146,7 @@ impl<T: Watcher> HashGlobWatcher<T> {
         // this is a best effort, and times out after 500ms in
         // case there is a lot of activity on the filesystem
         match timeout(FLUSH_TIMEOUT, self.config.flush()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                return Err(e);
-            }
+            Ok(_) => {}
             Err(_) => {
                 trace!("timed out waiting for flush");
             }
@@ -231,7 +223,7 @@ impl<T: Watcher> HashGlobWatcher<T> {
         &self,
         hash: &Hash,
         mut candidates: HashSet<String>,
-    ) -> Result<HashSet<String>, ConfigError> {
+    ) -> HashSet<String> {
         // wait for a the watcher to flush its events
         // that will ensure that we have seen all filesystem writes
         // *by the calling client*. Other tasks _could_ write to the
@@ -241,8 +233,7 @@ impl<T: Watcher> HashGlobWatcher<T> {
         // this is a best effort, and times out after 500ms in
         // case there is a lot of activity on the filesystem
         match timeout(FLUSH_TIMEOUT, self.config.flush()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
+            Ok(_) => {}
             Err(_) => {
                 trace!("timed out waiting for flush");
             }
@@ -252,13 +243,13 @@ impl<T: Watcher> HashGlobWatcher<T> {
         // if a hash is not in globs, then either everything has changed
         // or it was never registered. either way, we return all candidates
         let hash_globs = self.hash_globs.lock().expect("only fails if poisoned");
-        Ok(match hash_globs.get(hash) {
+        match hash_globs.get(hash) {
             Some(glob) => {
                 candidates.retain(|c| !glob.include.contains(c));
                 candidates
             }
             None => candidates,
-        })
+        }
     }
 }
 
@@ -271,8 +262,6 @@ impl<T: Watcher> HashGlobWatcher<T> {
 ///
 /// note: we take a mutex guard to make sure that the mutex is dropped
 ///       when the function returns
-#[allow(dead_code)]
-#[allow(clippy::type_complexity)]
 fn populate_hash_globs<'a>(
     glob_statuses: &MutexGuard<HashMap<Glob, HashSet<Hash>>>,
     repo_relative_paths: impl Iterator<Item = &'a Path> + Clone,
@@ -281,25 +270,24 @@ fn populate_hash_globs<'a>(
     let mut clear_glob_status = vec![];
     let mut exclude_globs = vec![];
 
-    // for every path, check to see if it matches any of the globs
-    // if it does, then we need to stop watching that glob
     for ((glob, hash_status), path) in glob_statuses
         .iter()
         .cartesian_product(repo_relative_paths)
         .filter(|((glob, _), path)| {
-            let glob = WaxGlob::new(glob).expect("only watch valid globs");
-            glob.is_match(*path)
+            // ignore paths that don't match the glob, or are not valid utf8
+            path.to_str()
+                .map(|s| glob_match::glob_match(glob, s))
+                .unwrap_or(false)
         })
     {
         let mut stop_watching = true;
 
-        // for every hash that includes this glob, check to see if the glob
-        // has changed for that hash. if it has, then we need to stop watching
         for hash in hash_status.iter() {
             let globs = match hash_globs.get_mut(hash).filter(|globs| {
-                !globs.exclude.iter().any(|glob| {
-                    let glob = WaxGlob::new(glob).expect("only watch valid globs");
-                    glob.is_match(path)
+                !globs.exclude.iter().any(|f| {
+                    path.to_str()
+                        .map(|s| glob_match::glob_match(f, s))
+                        .unwrap_or(false) // invalid utf8 cannot be matched
                 })
             }) {
                 Some(globs) => globs,
@@ -359,7 +347,6 @@ fn clear_hash_globs(
 mod test {
     use std::{fs::File, sync::Arc, time::Duration};
 
-    use camino::Utf8PathBuf;
     use globwatch::StopSource;
     use tokio::time::timeout;
     use turbopath::AbsoluteSystemPathBuf;
@@ -394,8 +381,8 @@ mod test {
         let flush = tempdir::TempDir::new("globwatch-flush").unwrap();
         let watcher = Arc::new(
             super::HashGlobWatcher::new(
-                AbsoluteSystemPathBuf::try_from(dir.path()).unwrap(),
-                Utf8PathBuf::try_from(flush.path().to_path_buf()).unwrap(),
+                AbsoluteSystemPathBuf::new(dir.path()).unwrap(),
+                flush.path().to_path_buf(),
             )
             .unwrap(),
         );
@@ -425,8 +412,7 @@ mod test {
 
         let changed = watcher
             .changed_globs(&hash, include.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -439,8 +425,7 @@ mod test {
         File::create(dir.path().join("my-pkg/irrelevant2")).unwrap();
         let changed = watcher
             .changed_globs(&hash, include.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -453,8 +438,7 @@ mod test {
         File::create(dir.path().join("my-pkg/.next/cache/next-file2")).unwrap();
         let changed = watcher
             .changed_globs(&hash, include.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -467,8 +451,7 @@ mod test {
         File::create(dir.path().join("my-pkg/dist/dist-file2")).unwrap();
         let changed = watcher
             .changed_globs(&hash, include.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert_eq!(
             changed,
@@ -482,8 +465,7 @@ mod test {
         File::create(dir.path().join("my-pkg/.next/next-file2")).unwrap();
         let changed = watcher
             .changed_globs(&hash, include.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert_eq!(
             changed,
@@ -510,8 +492,8 @@ mod test {
         let flush = tempdir::TempDir::new("globwatch-flush").unwrap();
         let watcher = Arc::new(
             super::HashGlobWatcher::new(
-                AbsoluteSystemPathBuf::try_from(dir.path()).unwrap(),
-                Utf8PathBuf::try_from(flush.path().to_path_buf()).unwrap(),
+                AbsoluteSystemPathBuf::new(dir.path()).unwrap(),
+                flush.path().to_path_buf(),
             )
             .unwrap(),
         );
@@ -551,8 +533,7 @@ mod test {
 
         let changed = watcher
             .changed_globs(&hash1, globs1_inclusion.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -562,8 +543,7 @@ mod test {
 
         let changed = watcher
             .changed_globs(&hash2, globs2_inclusion.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -576,8 +556,7 @@ mod test {
         File::create(dir.path().join("my-pkg/.next/cache/next-file2")).unwrap();
         let changed = watcher
             .changed_globs(&hash1, globs1_inclusion.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert_eq!(
             changed,
@@ -587,8 +566,7 @@ mod test {
 
         let changed = watcher
             .changed_globs(&hash2, globs2_inclusion.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -601,8 +579,7 @@ mod test {
         File::create(dir.path().join("my-pkg/.next/next-file2")).unwrap();
         let changed = watcher
             .changed_globs(&hash2, globs2_inclusion.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert_eq!(
             changed,
@@ -632,8 +609,8 @@ mod test {
         let flush = tempdir::TempDir::new("globwatch-flush").unwrap();
         let watcher = Arc::new(
             super::HashGlobWatcher::new(
-                AbsoluteSystemPathBuf::try_from(dir.path()).unwrap(),
-                Utf8PathBuf::try_from(flush.path().to_path_buf()).unwrap(),
+                AbsoluteSystemPathBuf::new(dir.path()).unwrap(),
+                flush.path().to_path_buf(),
             )
             .unwrap(),
         );
@@ -661,8 +638,7 @@ mod test {
         File::create(dir.path().join("my-pkg/.next/irrelevant")).unwrap();
         let changed = watcher
             .changed_globs(&hash, inclusions.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert!(
             changed.is_empty(),
@@ -673,8 +649,7 @@ mod test {
         File::create(dir.path().join("my-pkg/.next/next-file")).unwrap();
         let changed = watcher
             .changed_globs(&hash, inclusions.clone().into_iter().collect())
-            .await
-            .unwrap();
+            .await;
 
         assert_eq!(
             changed,
@@ -701,8 +676,8 @@ mod test {
         let flush = tempdir::TempDir::new("globwatch-flush").unwrap();
         let watcher = Arc::new(
             super::HashGlobWatcher::new(
-                AbsoluteSystemPathBuf::try_from(dir.path()).unwrap(),
-                Utf8PathBuf::try_from(flush.path().to_path_buf()).unwrap(),
+                AbsoluteSystemPathBuf::new(dir.path()).unwrap(),
+                flush.path().to_path_buf(),
             )
             .unwrap(),
         );
@@ -714,7 +689,7 @@ mod test {
 
         // dropped when the test ends
         let task = tokio::task::spawn(async move { task_watcher.watch(token).await });
-        tokio::time::sleep(Duration::from_secs(3)).await;
+
         watcher.config.flush().await.unwrap();
         std::fs::remove_dir_all(dir.path()).unwrap();
 

@@ -4,7 +4,16 @@ package ci
 
 import "os"
 
-var isCI = os.Getenv("BUILD_ID") != "" || os.Getenv("BUILD_NUMBER") != "" || os.Getenv("CI") != "" || os.Getenv("CI_APP_ID") != "" || os.Getenv("CI_BUILD_ID") != "" || os.Getenv("CI_BUILD_NUMBER") != "" || os.Getenv("CI_NAME") != "" || os.Getenv("CONTINUOUS_INTEGRATION") != "" || os.Getenv("RUN_ID") != "" || os.Getenv("TEAMCITY_VERSION") != "" || false
+var isCI = os.Getenv("BUILD_ID") != "" ||
+	os.Getenv("BUILD_NUMBER") != "" ||
+	os.Getenv("CI") != "" ||
+	os.Getenv("CI_APP_ID") != "" ||
+	os.Getenv("CI_BUILD_ID") != "" ||
+	os.Getenv("CI_BUILD_NUMBER") != "" ||
+	os.Getenv("CI_NAME") != "" ||
+	os.Getenv("CONTINUOUS_INTEGRATION") != "" ||
+	os.Getenv("RUN_ID") != "" ||
+	os.Getenv("TEAMCITY_VERSION") != "" || false
 
 // IsCi returns true if the program is executing in a CI/CD environment
 func IsCi() bool {

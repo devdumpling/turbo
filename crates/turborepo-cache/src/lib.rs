@@ -2,9 +2,14 @@
 #![feature(provide_any)]
 
 pub mod cache_archive;
+pub mod http;
 pub mod signature_authentication;
 
-use std::{backtrace, backtrace::Backtrace};
+use std::{
+    backtrace,
+    backtrace::Backtrace,
+    sync::{MutexGuard, PoisonError},
+};
 
 use thiserror::Error;
 
@@ -23,6 +28,8 @@ pub enum CacheError {
     InvalidTag(#[backtrace] Backtrace),
     #[error("cannot untar file to {0}")]
     InvalidFilePath(String, #[backtrace] Backtrace),
+    #[error("artifact verification failed: {0}")]
+    ApiClientError(#[from] turborepo_api_client::Error, #[backtrace] Backtrace),
     #[error("signing artifact failed: {0}")]
     SignatureError(#[from] SignatureError, #[backtrace] Backtrace),
     #[error("invalid duration")]
@@ -49,4 +56,8 @@ pub enum CacheError {
     WindowsUnsafeName(String, #[backtrace] Backtrace),
     #[error("tar attempts to write outside of directory: {0}")]
     LinkOutsideOfDirectory(String, #[backtrace] Backtrace),
+    PoisonedMutex(
+        #[from] PoisonError<MutexGuard<'static, ()>>,
+        #[backtrace] Backtrace,
+    ),
 }
