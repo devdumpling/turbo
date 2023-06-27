@@ -1,17 +1,19 @@
 #![feature(assert_matches)]
+#![feature(fs_try_exists)]
 
 /// Turborepo's path handling library
 /// Defines distinct path types for the different usecases of paths in turborepo
 ///
 /// - `AbsoluteSystemPath(Buf)`: a path that is absolute and uses the system's
 ///   path separator. Used for interacting with the filesystem
-/// - `RelativeSystemPath(Buf)`: a path that is relative and uses the system's
-///   path separator. Mostly used for appending onto `AbsoluteSystemPaths`.
 /// - `RelativeUnixPath(Buf)`: a path that is relative and uses the unix path
 ///   separator. Used when saving to a cache as a platform-independent path.
 /// - `AnchoredSystemPath(Buf)`: a path that is relative to a specific directory
 ///   and uses the system's path separator. Used for handling files relative to
 ///   the repository root.
+///
+/// NOTE: All paths contain UTF-8 strings and use `camino` as the underlying
+/// representation. For reasons why, see [the `camino` documentation](https://github.com/camino-rs/camino/).
 ///
 /// As in `std::path`, there are `Path` and `PathBuf` variants of each path
 /// type, that indicate whether the path is borrowed or owned.
@@ -30,30 +32,35 @@ mod absolute_system_path;
 mod absolute_system_path_buf;
 mod anchored_system_path;
 mod anchored_system_path_buf;
-mod anchored_unix_path_buf;
 mod relative_unix_path;
 mod relative_unix_path_buf;
 
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::io;
 
 pub use absolute_system_path::AbsoluteSystemPath;
 pub use absolute_system_path_buf::AbsoluteSystemPathBuf;
 pub use anchored_system_path::AnchoredSystemPath;
 pub use anchored_system_path_buf::AnchoredSystemPathBuf;
-pub use anchored_unix_path_buf::AnchoredUnixPathBuf;
-use path_slash::{PathBufExt, PathExt};
+use camino::{Utf8Path, Utf8PathBuf};
 pub use relative_unix_path::RelativeUnixPath;
-pub use relative_unix_path_buf::RelativeUnixPathBuf;
+pub use relative_unix_path_buf::{RelativeUnixPathBuf, RelativeUnixPathBufTestExt};
+
+// Lets windows know that we're going to be reading this file sequentially
+#[cfg(windows)]
+pub const FILE_FLAG_SEQUENTIAL_SCAN: u32 = 0x08000000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PathError {
     #[error("Path is non-UTF-8: {0}")]
     InvalidUnicode(String),
+    #[error("Failed to convert path")]
+    FromPathBufError(#[from] camino::FromPathBufError),
+    #[error("path is malformed: {0}")]
+    MalformedPath(String),
+    #[error("Path is not safe for windows: {0}")]
+    WindowsUnsafePath(String),
     #[error("Path is not absolute: {0}")]
-    NotAbsolute(PathBuf),
+    NotAbsolute(String),
     #[error("Path is not relative: {0}")]
     NotRelative(String),
     #[error("Path {0} is not parent of {1}")]
@@ -66,6 +73,12 @@ pub enum PathError {
     IO(#[from] io::Error),
     #[error("{0} is not a prefix for {1}")]
     PrefixError(String, String),
+}
+
+impl From<std::string::FromUtf8Error> for PathError {
+    fn from(value: std::string::FromUtf8Error) -> Self {
+        PathError::InvalidUnicode(value.utf8_error().to_string())
+    }
 }
 
 impl PathError {

@@ -149,7 +149,7 @@ func TestExists(t *testing.T) {
 
 type fakeClient struct{}
 
-// FetchArtifact implements cacheAPIClient
+// FetchArtifact implements client
 func (*fakeClient) FetchArtifact(hash string) (*http.Response, error) {
 	panic("unimplemented")
 }
@@ -158,17 +158,17 @@ func (*fakeClient) ArtifactExists(hash string) (*http.Response, error) {
 	panic("unimplemented")
 }
 
-// GetTeamID implements cacheAPIClient
+// GetTeamID implements client
 func (*fakeClient) GetTeamID() string {
 	return "fake-team-id"
 }
 
-// PutArtifact implements cacheAPIClient
+// PutArtifact implements client
 func (*fakeClient) PutArtifact(hash string, body []byte, duration int, tag string) error {
 	panic("unimplemented")
 }
 
-var _ cacheAPIClient = &fakeClient{}
+var _ client = &fakeClient{}
 
 func TestFetchCachingDisabled(t *testing.T) {
 	disabledCache := newDisabledCache()
@@ -246,7 +246,7 @@ func TestNew(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "With just HttpCache configured, new returns an HttpCache and a noopCache",
+			name: "With just httpCache configured, new returns an httpCache and a noopCache",
 			args: args{
 				opts: Opts{
 					SkipFilesystem: true,
@@ -258,7 +258,7 @@ func TestNew(t *testing.T) {
 				onCacheRemoved: func(Cache, error) {},
 			},
 			want: &cacheMultiplexer{
-				caches: []Cache{&HttpCache{}, &noopCache{}},
+				caches: []Cache{&httpCache{}, &noopCache{}},
 			},
 			wantErr: false,
 		},
@@ -274,7 +274,7 @@ func TestNew(t *testing.T) {
 			want: &fsCache{},
 		},
 		{
-			name: "With both configured, new returns an fsCache and HttpCache",
+			name: "With both configured, new returns an fsCache and httpCache",
 			args: args{
 				opts: Opts{
 					RemoteCacheOpts: fs.RemoteCacheOptions{
@@ -285,7 +285,7 @@ func TestNew(t *testing.T) {
 				onCacheRemoved: func(Cache, error) {},
 			},
 			want: &cacheMultiplexer{
-				caches: []Cache{&fsCache{}, &HttpCache{}},
+				caches: []Cache{&fsCache{}, &httpCache{}},
 			},
 		},
 	}

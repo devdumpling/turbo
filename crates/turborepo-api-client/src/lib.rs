@@ -298,19 +298,15 @@ impl APIClient {
         request_method: &str,
         request_headers: &str,
     ) -> Result<PreflightResponse> {
-        let response = self
-            .make_retryable_request(async || {
-                let request_builder = self
-                    .client
-                    .request(Method::OPTIONS, request_url)
-                    .header("User-Agent", self.user_agent.clone())
-                    .header("Access-Control-Request-Method", request_method)
-                    .header("Access-Control-Request-Headers", request_headers)
-                    .header("Authorization", format!("Bearer {}", token));
+        let request_builder = self
+            .client
+            .request(Method::OPTIONS, request_url)
+            .header("User-Agent", self.user_agent.clone())
+            .header("Access-Control-Request-Method", request_method)
+            .header("Access-Control-Request-Headers", request_headers)
+            .header("Authorization", format!("Bearer {}", token));
 
-                Ok(request_builder.send().await?)
-            })
-            .await?;
+        let response = retry::make_retryable_request(request_builder).await?;
 
         let headers = response.headers();
         let location = if let Some(location) = headers.get("Location") {

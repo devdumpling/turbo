@@ -48,16 +48,10 @@ pub enum CacheError {
     // way to display it nicely.
     #[error("attempted to create unsupported file type")]
     CreateUnsupportedFileType(#[backtrace] Backtrace),
-    #[error("file name is malformed: {0}")]
-    MalformedName(String, #[backtrace] Backtrace),
     #[error("tar file is malformed")]
     MalformedTar(#[backtrace] Backtrace),
     #[error("file name is not Windows-safe: {0}")]
     WindowsUnsafeName(String, #[backtrace] Backtrace),
     #[error("tar attempts to write outside of directory: {0}")]
     LinkOutsideOfDirectory(String, #[backtrace] Backtrace),
-    PoisonedMutex(
-        #[from] PoisonError<MutexGuard<'static, ()>>,
-        #[backtrace] Backtrace,
-    ),
 }

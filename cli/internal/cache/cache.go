@@ -7,7 +7,6 @@ package cache
 
 import (
 	"errors"
-	"github.com/vercel/turbo/cli/internal/client"
 	"sync"
 
 	"github.com/vercel/turbo/cli/internal/analytics"
@@ -120,7 +119,7 @@ var _remoteOnlyHelp = `Ignore the local filesystem cache for all tasks. Only
 allow reading and caching artifacts using the remote cache.`
 
 // New creates a new cache
-func New(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client *client.APIClient, recorder analytics.Recorder, onCacheRemoved OnCacheRemoved) (Cache, error) {
+func New(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client client, recorder analytics.Recorder, onCacheRemoved OnCacheRemoved) (Cache, error) {
 	c, err := newSyncCache(opts, repoRoot, client, recorder, onCacheRemoved)
 	if err != nil && !errors.Is(err, ErrNoCachesEnabled) {
 		return nil, err
@@ -132,7 +131,7 @@ func New(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client *client.APICli
 }
 
 // newSyncCache can return an error with a usable noopCache.
-func newSyncCache(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client *client.APIClient, recorder analytics.Recorder, onCacheRemoved OnCacheRemoved) (Cache, error) {
+func newSyncCache(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client client, recorder analytics.Recorder, onCacheRemoved OnCacheRemoved) (Cache, error) {
 	// Check to see if the user has turned off particular cache implementations.
 	useFsCache := !opts.SkipFilesystem
 	useHTTPCache := !opts.SkipRemote
@@ -141,8 +140,8 @@ func newSyncCache(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client *clie
 	// yourself out of having a cache. We should tell you about it but we shouldn't fail
 	// your build for that reason.
 	//
-	// Further, since the HttpCache can be removed at runtime, we need to insert a noopCache
-	// as a backup if you are configured to have *just* an HttpCache.
+	// Further, since the httpCache can be removed at runtime, we need to insert a noopCache
+	// as a backup if you are configured to have *just* an httpCache.
 	//
 	// This is reduced from (!useFsCache && !useHTTPCache) || (!useFsCache & useHTTPCache)
 	useNoopCache := !useFsCache
@@ -169,7 +168,7 @@ func newSyncCache(opts Opts, repoRoot turbopath.AbsoluteSystemPath, client *clie
 	}
 
 	// Precisely two cache implementations:
-	// fsCache and HttpCache OR HttpCache and noopCache
+	// fsCache and httpCache OR httpCache and noopCache
 	useMultiplexer := len(cacheImplementations) > 1
 	if useMultiplexer {
 		// We have early-returned any possible errors for this scenario.

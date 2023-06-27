@@ -1,8 +1,11 @@
 use std::{
     borrow::Borrow,
+    fmt,
+    ops::Deref,
     path::{Path, PathBuf},
 };
 
+use camino::{Utf8Component, Utf8Components, Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -38,31 +41,40 @@ impl AsRef<AnchoredSystemPath> for AnchoredSystemPathBuf {
     }
 }
 
+impl Deref for AnchoredSystemPathBuf {
+    type Target = AnchoredSystemPath;
+
+    fn deref(&self) -> &Self::Target {
+        self.borrow()
+    }
+}
+
 impl TryFrom<&Path> for AnchoredSystemPathBuf {
     type Error = PathError;
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        if path.is_absolute() {
-            let bad_path = path.display().to_string();
-            return Err(PathError::NotRelative(bad_path).into());
-        }
+        let path = path
+            .to_str()
+            .ok_or_else(|| PathError::InvalidUnicode(path.to_string_lossy().to_string()))?;
 
-        Ok(AnchoredSystemPathBuf(path.into_system()?))
+        Self::try_from(path)
+    }
+}
+
+impl fmt::Display for AnchoredSystemPathBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+// TODO: perhaps we ought to be converting to a unix path?
+impl<'a> From<&'a AnchoredSystemPathBuf> for wax::CandidatePath<'a> {
+    fn from(path: &'a AnchoredSystemPathBuf) -> Self {
+        path.0.as_std_path().into()
     }
 }
 
 impl AnchoredSystemPathBuf {
-    // Create an AnchoredSystemPathBuf from a PathBuf. Validates that it's relative
-    // and automatically converts to system format. Mostly used for testing
-    pub fn from_path_buf(path: impl Into<PathBuf>) -> Result<Self, PathError> {
-        let path = path.into();
-        if path.is_absolute() {
-            let bad_path = path.display().to_string();
-            return Err(PathError::NotRelative(bad_path));
-        }
-
-        Ok(AnchoredSystemPathBuf(path.into_system()?))
-    }
     pub fn new(
         root: impl AsRef<AbsoluteSystemPath>,
         path: impl AsRef<AbsoluteSystemPath>,
@@ -73,7 +85,7 @@ impl AnchoredSystemPathBuf {
             .as_path()
             .strip_prefix(root.as_path())
             .map_err(|_| PathError::NotParent(root.to_string(), path.to_string()))?
-            .to_path_buf();
+            .into();
 
         Ok(AnchoredSystemPathBuf(stripped_path))
     }
@@ -177,45 +189,40 @@ impl AnchoredSystemPathBuf {
     }
 
     pub fn as_path(&self) -> &Path {
-        self.0.as_path()
-    }
-
-    pub fn as_anchored_path(&self) -> &AnchoredSystemPath {
-        unsafe { AnchoredSystemPath::new_unchecked(self.0.as_path()) }
-    }
-
-    pub fn to_str(&self) -> Result<&str, PathError> {
-        self.0
-            .to_str()
-            .ok_or_else(|| PathError::InvalidUnicode(self.0.to_string_lossy().to_string()).into())
+        self.0.as_std_path()
     }
 
     pub fn to_unix(&self) -> Result<RelativeUnixPathBuf, PathError> {
         #[cfg(unix)]
         {
-            use std::os::unix::ffi::OsStrExt;
-            let bytes = self.0.as_os_str().as_bytes();
-            return RelativeUnixPathBuf::new(bytes);
+            return RelativeUnixPathBuf::new(self.0.as_str());
         }
         #[cfg(not(unix))]
         {
             use crate::IntoUnix;
-            let unix_buf = self.0.as_path().into_unix()?;
-            let unix_str = unix_buf
-                .to_str()
-                .ok_or_else(|| PathError::InvalidUnicode(unix_buf.to_string_lossy().to_string()))?;
-            return RelativeUnixPathBuf::new(unix_str.as_bytes());
+            let unix_buf = self.0.as_path().into_unix();
+            RelativeUnixPathBuf::new(unix_buf)
         }
     }
 
-    pub fn push(&mut self, path: impl AsRef<Path>) {
+    pub fn push(&mut self, path: impl AsRef<Utf8Path>) {
         self.0.push(path.as_ref());
+    }
+
+    pub fn components(&self) -> Utf8Components {
+        self.0.components()
     }
 }
 
 impl From<AnchoredSystemPathBuf> for PathBuf {
     fn from(path: AnchoredSystemPathBuf) -> PathBuf {
-        path.0
+        path.0.into_std_path_buf()
+    }
+}
+
+impl AsRef<Utf8Path> for AnchoredSystemPathBuf {
+    fn as_ref(&self) -> &Utf8Path {
+        self.0.as_ref()
     }
 }
 

@@ -41,7 +41,7 @@ impl HttpCache {
 
         let tag = self
             .signer_verifier
-            .map(|signer| signer_verifier.generate_tag(&hash, &artifact_body))
+            .map(|signer| signer.generate_tag(&hash, &artifact_body))
             .transpose()?;
 
         self.client

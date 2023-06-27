@@ -152,55 +152,17 @@ message RecursiveCopyResponse {
   optional string error = 1;
 }
 
-message GetPackageFileHashesFromGitIndexRequest {
-  string turbo_root = 1;
-  string package_path = 2;
+message VerifySignatureRequest {
+  string hash = 1;
+  bytes artifact_body = 2;
+  bytes team_id = 3;
+  string expected_tag = 4;
+  optional bytes secret_key_override = 5;
 }
 
-message FileHashes {
-  map<string, string> hashes = 1;
-}
-
-message GetPackageFileHashesFromGitIndexResponse {
+message VerifySignatureResponse {
   oneof response {
-    FileHashes hashes = 1;
-    string error = 2;
-  }
-}
-
-message NewAPIClientRequest {
-  string base_url = 1;
-  uint64 timeout = 2;
-  string version = 3;
-  string token = 4;
-  string team_id = 5;
-  optional string team_slug = 6;
-  bool use_preflight = 7;
-}
-
-message NewArtifactSignatureAuthenticatorRequest {
-  string team_id = 1;
-}
-
-message NewHttpCacheRequest {
-  NewAPIClientRequest api_client = 1;
-  NewArtifactSignatureAuthenticatorRequest authenticator = 2;
-  string repo_root = 3;
-}
-
-message RetrieveRequest {
-  NewHttpCacheRequest http_cache = 1;
-  string hash = 2;
-}
-
-message RestoredFilesList {
-  repeated string files = 1;
-  uint64 duration = 2;
-}
-
-message RetrieveResponse {
-  oneof response {
-    RestoredFilesList files = 1;
+    bool verified = 1;
     string error = 2;
   }
 }
@@ -229,6 +191,10 @@ message GetHashesForFilesResponse {
     FileHashes hashes = 1;
     string error = 2;
   }
+}
+
+message FileHashes {
+  map<string, string> hashes = 1;
 }
 
 message FromWildcardsRequest {
@@ -268,16 +234,3 @@ message GetGlobalHashableEnvVarsResponse {
     string error = 2;
   }
 }
-
-message PutArtifactRequest {
-  NewHttpCacheRequest http_cache = 1;
-  string anchor = 2;
-  string hash = 3;
-  uint64 duration = 4;
-  repeated string files = 5;
-}
-
-message PutArtifactResponse {
-  optional string error = 1;
- }
-
