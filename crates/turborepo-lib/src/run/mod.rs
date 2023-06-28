@@ -80,8 +80,6 @@ impl Run {
             .validate()
             .context("Invalid package dependency graph")?;
 
-        let _filtered_pkgs = scope::resolve_packages(&opts.scope_opts, &self.base, &pkg_dep_graph)?;
-
         let scm = SCM::new(&self.base.repo_root);
 
         let _filtered_pkgs =

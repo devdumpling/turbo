@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 
 use crate::{
     commands::CommandBase,
+    config::TurboJson,
+    opts::Opts,
     package_graph::{PackageGraph, WorkspaceName, WorkspaceNode},
     package_json::PackageJson,
     package_manager::PackageManager,
@@ -14,7 +16,15 @@ pub fn run(base: &mut CommandBase, workspace: Option<&str>) -> Result<()> {
     let package_manager =
         PackageManager::get_package_manager(&base.repo_root, Some(&root_package_json))?;
 
-    let package_graph = PackageGraph::builder(&base.repo_root, root_package_json)
+    let opts: Opts = base.args().try_into()?;
+
+    let root_turbo_json = TurboJson::load(
+        &base.repo_root,
+        &root_package_json,
+        opts.run_opts.single_package,
+    )?;
+
+    let package_graph = PackageGraph::builder(&base.repo_root, root_package_json, root_turbo_json)
         .with_package_manger(Some(package_manager))
         .build()?;
 
