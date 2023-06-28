@@ -61,8 +61,8 @@ impl DevChunkingContextBuilder {
         self
     }
 
-    pub fn build(self) -> ChunkingContextVc {
-        DevChunkingContextVc::new(Value::new(self.context)).into()
+    pub fn build(self) -> DevChunkingContextVc {
+        DevChunkingContextVc::new(Value::new(self.context))
     }
 }
 
