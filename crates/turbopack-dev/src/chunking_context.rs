@@ -203,17 +203,18 @@ impl ChunkingContext for DevChunkingContext {
 
     #[turbo_tasks::function]
     async fn reference_chunk_source_maps(&self, chunk: AssetVc) -> Result<BoolVc> {
-        let mut source_maps = self.reference_chunk_source_maps;
-        let path = chunk.ident().path().await?;
-        let extension = path.extension().unwrap_or_default();
-        #[allow(clippy::single_match, reason = "future extensions")]
-        match extension {
-            ".css" => {
-                source_maps = self.reference_css_chunk_source_maps;
-            }
-            _ => {}
-        }
-        Ok(BoolVc::cell(source_maps))
+        return Ok(BoolVc::cell(false));
+        // let mut source_maps = self.reference_chunk_source_maps;
+        // let path = chunk.ident().path().await?;
+        // let extension = path.extension().unwrap_or_default();
+        // #[allow(clippy::single_match, reason = "future extensions")]
+        // match extension {
+        //     ".css" => {
+        //         source_maps = self.reference_css_chunk_source_maps;
+        //     }
+        //     _ => {}
+        // }
+        // Ok(BoolVc::cell(source_maps))
     }
 
     #[turbo_tasks::function]

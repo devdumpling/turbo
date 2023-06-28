@@ -3,8 +3,8 @@ use swc_core::{
     ecma::{
         ast::{
             Expr, ExprStmt, Ident, ImportDecl, ImportDefaultSpecifier, ImportSpecifier,
-            KeyValueProp, Lit, Module, ModuleDecl, ModuleItem, ObjectLit, Program, Prop, PropName,
-            PropOrSpread, Stmt, Str,
+            ImportStarAsSpecifier, KeyValueProp, Lit, Module, ModuleDecl, ModuleItem, ObjectLit,
+            Program, Prop, PropName, PropOrSpread, Stmt, Str,
         },
         utils::private_ident,
     },
@@ -25,7 +25,8 @@ pub fn create_proxy_module(transition_name: &str, target_import: &str) -> Progra
                 span: DUMMY_SP,
             })),
             ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
-                specifiers: vec![ImportSpecifier::Default(ImportDefaultSpecifier {
+                // TODO(alexkirsz) Is this correct?
+                specifiers: vec![ImportSpecifier::Namespace(ImportStarAsSpecifier {
                     local: ident.clone(),
                     span: DUMMY_SP,
                 })],
