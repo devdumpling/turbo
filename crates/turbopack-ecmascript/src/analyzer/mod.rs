@@ -3173,9 +3173,7 @@ mod tests {
     use turbo_tasks::{util::FormatDuration, Value};
     use turbopack_core::{
         compile_time_info::CompileTimeInfo,
-        environment::{
-            EnvironmentIntention, EnvironmentVc, ExecutionEnvironment, NodeJsEnvironment,
-        },
+        environment::{EnvironmentVc, ExecutionEnvironment, NodeJsEnvironment},
         target::{Arch, CompileTarget, Endianness, Libc, Platform},
     };
 
@@ -3438,8 +3436,8 @@ mod tests {
 
     async fn resolve(var_graph: &VarGraph, val: JsValue) -> JsValue {
         turbo_tasks_testing::VcStorage::with(async {
-            let compile_time_info = CompileTimeInfo::builder(EnvironmentVc::new(
-                Value::new(ExecutionEnvironment::NodeJsLambda(
+            let compile_time_info = CompileTimeInfo::builder(EnvironmentVc::new(Value::new(
+                ExecutionEnvironment::NodeJsLambda(
                     NodeJsEnvironment {
                         compile_target: CompileTarget {
                             arch: Arch::X64,
@@ -3451,9 +3449,8 @@ mod tests {
                         ..Default::default()
                     }
                     .into(),
-                )),
-                Value::new(EnvironmentIntention::ServerRendering),
-            ))
+                ),
+            )))
             .cell();
             link(
                 var_graph,
