@@ -15,13 +15,12 @@ use crate::{
     CacheError,
 };
 
-struct CacheReader {
-    reader: Box<dyn Read>,
+pub struct CacheReader<'a> {
+    reader: Box<dyn Read + 'a>,
 }
 
-impl CacheReader {
-    #[cfg(test)]
-    pub fn new(reader: impl Read + 'static, is_compressed: bool) -> Result<Self, CacheError> {
+impl<'a> CacheReader<'a> {
+    pub fn from_reader(reader: impl Read + 'a, is_compressed: bool) -> Result<Self, CacheError> {
         let reader: Box<dyn Read> = if is_compressed {
             Box::new(zstd::Decoder::new(reader)?)
         } else {
