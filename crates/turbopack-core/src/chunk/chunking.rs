@@ -137,7 +137,6 @@ async fn chunking(
         chunk_items,
         available_assets,
         isolated_parallel_chunk_groups,
-        assets,
         external_references,
         async_assets,
         separate_assets,
@@ -187,4 +186,6 @@ async fn chunk_group(
     for chunk_group in todo!("recursive with isolated_parallel_chunk_groups").await? {
         chunks.extend(chunk_group)
     }
+
+    // return chunks
 }
