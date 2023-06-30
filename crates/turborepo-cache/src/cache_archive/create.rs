@@ -11,7 +11,7 @@ use turbopath::{AbsoluteSystemPath, AnchoredSystemPath, RelativeUnixPathBuf};
 
 use crate::CacheError;
 
-struct CacheWriter {
+pub(crate) struct CacheWriter {
     builder: tar::Builder<Box<dyn Write>>,
 }
 

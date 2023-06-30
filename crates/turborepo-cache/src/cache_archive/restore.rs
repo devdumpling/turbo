@@ -15,7 +15,7 @@ use crate::{
     CacheError,
 };
 
-struct CacheReader {
+pub struct CacheReader {
     reader: Box<dyn Read>,
 }
 
