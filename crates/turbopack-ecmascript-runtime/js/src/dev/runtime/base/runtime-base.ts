@@ -108,11 +108,7 @@ type SourceInfo =
 
 interface RuntimeBackend {
   registerChunk: (chunkPath: ChunkPath, params?: DevRuntimeParams) => void;
-  loadChunk: (
-    chunkPath: ChunkPath,
-    source: SourceInfo,
-    basePath?: string
-  ) => Promise<void>;
+  loadChunk: (chunkPath: ChunkPath, source: SourceInfo) => Promise<void>;
   reloadChunk?: (chunkPath: ChunkPath) => Promise<void>;
   unloadChunk?: (chunkPath: ChunkPath) => void;
 
@@ -171,12 +167,10 @@ const availableModuleChunks: Map<ChunkPath, Promise<any> | true> = new Map();
 
 async function loadChunk(
   source: SourceInfo,
-  chunkData: ChunkData,
-  // TODO(alexkirsz) Remove.
-  basePath?: string
+  chunkData: ChunkData
 ): Promise<any> {
   if (typeof chunkData === "string") {
-    return loadChunkPath(source, chunkData, basePath);
+    return loadChunkPath(source, chunkData);
   }
 
   const includedList = chunkData.included || [];
@@ -224,7 +218,7 @@ async function loadChunk(
 
     promise = Promise.all(moduleChunksPromises);
   } else {
-    promise = loadChunkPath(source, chunkData.path, basePath);
+    promise = loadChunkPath(source, chunkData.path);
 
     // Mark all included module chunks as loading if they are not already loaded or loading.
     for (const includedModuleChunk of includedModuleChunksList) {
@@ -247,11 +241,10 @@ async function loadChunk(
 
 async function loadChunkPath(
   source: SourceInfo,
-  chunkPath: ChunkPath,
-  basePath?: string
+  chunkPath: ChunkPath
 ): Promise<any> {
   try {
-    await BACKEND.loadChunk(chunkPath, source, basePath);
+    await BACKEND.loadChunk(chunkPath, source);
   } catch (error) {
     let loadReason;
     switch (source.type) {

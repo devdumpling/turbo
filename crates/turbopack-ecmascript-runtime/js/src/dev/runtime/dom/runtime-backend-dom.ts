@@ -57,8 +57,8 @@ function commonJsRequireContext(
       }
     },
 
-    loadChunk(chunkPath, source, basePath) {
-      return doLoadChunk(chunkPath, source, basePath);
+    loadChunk(chunkPath, source) {
+      return doLoadChunk(chunkPath, source);
     },
 
     unloadChunk(chunkPath) {
@@ -171,11 +171,7 @@ function commonJsRequireContext(
    * Loads the given chunk, and returns a promise that resolves once the chunk
    * has been loaded.
    */
-  async function doLoadChunk(
-    chunkPath: ChunkPath,
-    source: SourceInfo,
-    basePath: string = ""
-  ) {
+  async function doLoadChunk(chunkPath: ChunkPath, source: SourceInfo) {
     const resolver = getOrCreateResolver(chunkPath);
     if (resolver.resolved) {
       return resolver.promise;
@@ -201,7 +197,7 @@ function commonJsRequireContext(
     if (chunkPath.endsWith(".css")) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = `/${basePath}${chunkPath}`;
+      link.href = `/${CHUNK_BASE_PATH}${chunkPath}`;
       link.onerror = () => {
         resolver.reject();
       };
@@ -213,7 +209,7 @@ function commonJsRequireContext(
       document.body.appendChild(link);
     } else if (chunkPath.endsWith(".js")) {
       const script = document.createElement("script");
-      script.src = `/${basePath}${chunkPath}`;
+      script.src = `/${CHUNK_BASE_PATH}${chunkPath}`;
       // We'll only mark the chunk as loaded once the script has been executed,
       // which happens in `registerChunk`. Hence the absence of `resolve()` in
       // this branch.

@@ -12,7 +12,7 @@ use turbopack_core::{
     asset::{Asset, AssetContentVc, AssetVc, AssetsVc},
     chunk::{
         availability_info::AvailabilityInfo, chunk_content, chunk_content_split, Chunk,
-        ChunkContentResult, ChunkGroupReferenceVc, ChunkItem, ChunkItemVc, ChunkVc,
+        ChunkContentResult, ChunkGroupReferenceVc, ChunkItem, ChunkItemVc, ChunkVc, ChunkableAsset,
         ChunkableAssetVc, ChunkingContext, ChunkingContextVc, ChunksVc, FromChunkableAsset,
         ModuleId, ModuleIdVc, ModuleIdsVc, OutputChunk, OutputChunkRuntimeInfo,
         OutputChunkRuntimeInfoVc, OutputChunkVc,
@@ -466,7 +466,7 @@ impl CssChunkContextVc {
 }
 
 #[turbo_tasks::value_trait]
-pub trait CssChunkPlaceable: Asset {
+pub trait CssChunkPlaceable: ChunkableAsset + Asset {
     fn as_chunk_item(&self, context: ChunkingContextVc) -> CssChunkItemVc;
 }
 

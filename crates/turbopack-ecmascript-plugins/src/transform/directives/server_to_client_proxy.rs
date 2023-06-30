@@ -2,9 +2,9 @@ use swc_core::{
     common::DUMMY_SP,
     ecma::{
         ast::{
-            Expr, ExprStmt, Ident, ImportDecl, ImportDefaultSpecifier, ImportSpecifier,
-            ImportStarAsSpecifier, KeyValueProp, Lit, Module, ModuleDecl, ModuleItem, ObjectLit,
-            Program, Prop, PropName, PropOrSpread, Stmt, Str,
+            Expr, ExprStmt, Ident, ImportDecl, ImportSpecifier, ImportStarAsSpecifier,
+            KeyValueProp, Lit, Module, ModuleDecl, ModuleItem, ObjectLit, Program, Prop, PropName,
+            PropOrSpread, Stmt, Str,
         },
         utils::private_ident,
     },

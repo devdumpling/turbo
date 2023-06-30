@@ -6,7 +6,7 @@ use turbo_tasks::{primitives::StringVc, ValueToString, ValueToStringVc};
 use turbo_tasks_fs::{File, FileSystemPathVc};
 use turbopack_core::{
     asset::{Asset, AssetContentVc, AssetVc, AssetsVc},
-    chunk::{ChunkVc, ChunkingContext, EvaluatableAssetsVc},
+    chunk::{ChunkingContext, EvaluatableAssetsVc},
     code_builder::{CodeBuilder, CodeVc},
     ident::AssetIdentVc,
     reference::{AssetReferencesVc, SingleAssetReferenceVc},
@@ -28,7 +28,6 @@ use crate::BuildChunkingContextVc;
 pub(crate) struct EcmascriptBuildNodeEntryChunk {
     path: FileSystemPathVc,
     chunking_context: BuildChunkingContextVc,
-    entry_chunk: ChunkVc,
     other_chunks: AssetsVc,
     evaluatable_assets: EvaluatableAssetsVc,
     exported_module: EcmascriptChunkPlaceableVc,
@@ -41,7 +40,6 @@ impl EcmascriptBuildNodeEntryChunkVc {
     pub fn new(
         path: FileSystemPathVc,
         chunking_context: BuildChunkingContextVc,
-        entry_chunk: ChunkVc,
         other_chunks: AssetsVc,
         evaluatable_assets: EvaluatableAssetsVc,
         exported_module: EcmascriptChunkPlaceableVc,
@@ -49,7 +47,6 @@ impl EcmascriptBuildNodeEntryChunkVc {
         EcmascriptBuildNodeEntryChunk {
             path,
             chunking_context,
-            entry_chunk,
             other_chunks,
             evaluatable_assets,
             exported_module,
@@ -80,7 +77,7 @@ impl EcmascriptBuildNodeEntryChunkVc {
                     runtime_path.to_string(),
                 );
             };
-        let chunk_public_path = if let Some(path) = output_root.get_path_to(&chunk_path) {
+        let chunk_base_path = if let Some(path) = output_root.get_path_to(&chunk_path) {
             path
         } else {
             bail!(
@@ -95,17 +92,17 @@ impl EcmascriptBuildNodeEntryChunkVc {
         writedoc!(
             code,
             r#"
-                const CHUNK_PUBLIC_PATH = {};
+                const CHUNK_BASE_PATH = {};
                 const runtime = require({});
             "#,
-            StringifyJs(chunk_public_path),
+            StringifyJs(chunk_base_path),
             StringifyJs(&*runtime_relative_path)
         )?;
 
         let other_chunks = this.other_chunks.await?;
         for other_chunk in &*other_chunks {
             let other_chunk_path = &*other_chunk.ident().path().await?;
-            if let Some(other_chunk_public_path) = output_root.get_path_to(other_chunk_path) {
+            if let Some(other_chunk_base_path) = output_root.get_path_to(other_chunk_path) {
                 writedoc!(
                     code,
                     // TODO(WEB-1112) This should call `require()` directly, perhaps as an argument
@@ -113,7 +110,7 @@ impl EcmascriptBuildNodeEntryChunkVc {
                     r#"
                         runtime.loadChunk({});
                     "#,
-                    StringifyJs(&other_chunk_public_path)
+                    StringifyJs(&other_chunk_base_path)
                 )?;
             }
         }
@@ -131,7 +128,7 @@ impl EcmascriptBuildNodeEntryChunkVc {
                 writedoc!(
                     code,
                     r#"
-                        runtime.getOrInstantiateRuntimeModule({}, CHUNK_PUBLIC_PATH);
+                        runtime.getOrInstantiateRuntimeModule({}, CHUNK_BASE_PATH);
                     "#,
                     StringifyJs(&*runtime_module_id),
                 )?;
@@ -147,7 +144,7 @@ impl EcmascriptBuildNodeEntryChunkVc {
         writedoc!(
             code,
             r#"
-                    module.exports = runtime.getOrInstantiateRuntimeModule({}, CHUNK_PUBLIC_PATH).exports;
+                    module.exports = runtime.getOrInstantiateRuntimeModule({}, CHUNK_BASE_PATH).exports;
                 "#,
             StringifyJs(&*runtime_module_id),
         )?;
